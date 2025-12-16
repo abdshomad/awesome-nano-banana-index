@@ -246,6 +246,11 @@ def run_indexing():
             print("Error: Could not connect to Meilisearch")
             return
         
+        # Check if index already exists and has documents
+        if search_engine.is_indexed():
+            print("Index already exists with documents. Skipping index creation and document indexing.")
+            return
+        
         # Create index if needed
         if not search_engine.create_index():
             print("Error: Could not create index")

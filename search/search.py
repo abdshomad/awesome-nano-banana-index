@@ -45,6 +45,7 @@ class SearchEngine:
     def create_index(self) -> bool:
         """Create Meilisearch index with proper settings."""
         try:
+            index_created = False
             # Create index if it doesn't exist
             try:
                 task = self.client.create_index(self.index_name, {"primaryKey": "id"})
@@ -52,13 +53,26 @@ class SearchEngine:
                 self.client.wait_for_task(task.task_uid)
                 # Get the index object
                 self.index = self.client.index(self.index_name)
+                index_created = True
             except MeilisearchApiError as e:
                 if e.status_code == 409:
                     # Index already exists, get it
                     self.index = self.client.index(self.index_name)
+                    # Check if index already has documents
+                    try:
+                        stats = self.index.get_stats()
+                        document_count = stats.get("numberOfDocuments", 0)
+                        if document_count > 0:
+                            # Index already exists with documents, skip reconfiguration
+                            print(f"Index '{self.index_name}' already exists with {document_count} documents. Skipping reconfiguration.")
+                            return True
+                    except Exception:
+                        # If we can't get stats, continue with configuration
+                        pass
                 else:
                     raise
             
+            # Only configure attributes if index was just created or is empty
             # Configure searchable attributes
             self.index.update_searchable_attributes([
                 "title",
@@ -84,7 +98,10 @@ class SearchEngine:
                 "type"
             ])
             
-            print(f"Index '{self.index_name}' created/configured successfully")
+            if index_created:
+                print(f"Index '{self.index_name}' created and configured successfully")
+            else:
+                print(f"Index '{self.index_name}' configured successfully")
             return True
             
         except Exception as e:
@@ -139,7 +156,6 @@ class SearchEngine:
         
         try:
             search_params = {
-                "q": query,
                 "limit": limit or SEARCH_RESULT_LIMIT,
                 "offset": offset,
             }
@@ -160,7 +176,8 @@ class SearchEngine:
             if filter_parts:
                 search_params["filter"] = " AND ".join(filter_parts)
             
-            results = self.index.search(**search_params)
+            # Meilisearch search() takes query as first positional arg, params as second
+            results = self.index.search(query, search_params)
             return results
             
         except Exception as e:
@@ -222,7 +239,7 @@ class SearchEngine:
             # Try to get index stats to check if it exists and has documents
             try:
                 stats = self.index.get_stats()
-                document_count = stats.get("numberOfDocuments", 0)
+                document_count = stats.number_of_documents if hasattr(stats, 'number_of_documents') else 0
                 return document_count > 0
             except MeilisearchApiError as e:
                 if e.status_code == 404:
@@ -249,7 +266,7 @@ class SearchEngine:
             # Get index stats
             try:
                 stats = self.index.get_stats()
-                document_count = stats.get("numberOfDocuments", 0)
+                document_count = stats.number_of_documents if hasattr(stats, 'number_of_documents') else 0
                 is_indexed = document_count > 0
                 
                 # Check for active indexing tasks
