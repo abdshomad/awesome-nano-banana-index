@@ -4,7 +4,7 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     environment:
-      - MEILI_MASTER_KEY=${MEILISEARCH_API_KEY:-}
+      - MEILI_MASTER_KEY=${MEILISEARCH_API_KEY:-dev_master_key_change_in_production}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:7700/health || exit 1"]
       interval: 10s
@@ -20,11 +20,11 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/app
+      - ${REPO_PATH:-.}:/app
     working_dir: /app
     environment:
       - MEILISEARCH_URL=http://meilisearch:7700
-      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY:-}
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY:-dev_master_key_change_in_production}
       - INDEX_NAME=${INDEX_NAME:-nano_banana_index}
     depends_on:
       meilisearch:

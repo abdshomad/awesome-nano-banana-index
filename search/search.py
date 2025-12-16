@@ -11,7 +11,9 @@ class SearchEngine:
     
     def __init__(self):
         """Initialize Meilisearch client."""
-        self.client = Client(MEILISEARCH_URL, MEILISEARCH_API_KEY)
+        # Pass None if API key is empty to allow unauthenticated access
+        api_key = MEILISEARCH_API_KEY if MEILISEARCH_API_KEY else None
+        self.client = Client(MEILISEARCH_URL, api_key)
         self.index_name = INDEX_NAME
         self.index = None
     
@@ -19,8 +21,16 @@ class SearchEngine:
         """Connect to Meilisearch and get index."""
         try:
             self.index = self.client.index(self.index_name)
-            # Try to get index info to verify connection
-            self.index.get_raw_info()
+            # Try to get index stats to verify connection
+            # If index doesn't exist, this will raise an error which we'll catch
+            try:
+                self.index.get_stats()
+            except MeilisearchApiError as e:
+                if e.status_code == 404:
+                    # Index doesn't exist yet, that's okay
+                    pass
+                else:
+                    raise
             return True
         except MeilisearchApiError as e:
             if e.status_code == 404:
@@ -37,7 +47,11 @@ class SearchEngine:
         try:
             # Create index if it doesn't exist
             try:
-                self.index = self.client.create_index(self.index_name, {"primaryKey": "id"})
+                task = self.client.create_index(self.index_name, {"primaryKey": "id"})
+                # Wait for the task to complete
+                self.client.wait_for_task(task.task_uid)
+                # Get the index object
+                self.index = self.client.index(self.index_name)
             except MeilisearchApiError as e:
                 if e.status_code == 409:
                     # Index already exists, get it
@@ -87,14 +101,21 @@ class SearchEngine:
             # Index documents in batches
             batch_size = 100
             total = len(documents)
+            task_uids = []
             
             for i in range(0, total, batch_size):
                 batch = documents[i:i + batch_size]
-                self.index.add_documents(batch)
+                task = self.index.add_documents(batch)
+                task_uids.append(task.task_uid)
                 print(f"Indexed {min(i + batch_size, total)}/{total} documents")
             
-            # Wait for indexing to complete
-            self.index.wait_for_task(self.index.get_tasks()["results"][0]["uid"])
+            # Wait for all indexing tasks to complete (with longer timeout)
+            for task_uid in task_uids:
+                try:
+                    self.index.wait_for_task(task_uid, timeout_in_ms=60000)  # 60 second timeout
+                except Exception as e:
+                    print(f"Warning: Task {task_uid} may still be processing: {e}")
+                    # Continue anyway - the task might complete later
             
             print(f"Successfully indexed {total} documents")
             return True
@@ -171,6 +192,10 @@ class SearchEngine:
             if not self.connect_to_meilisearch():
                 return []
         
+        # Check if index is indexed first
+        if not self.is_indexed():
+            return []
+        
         try:
             # Search with empty query to get all documents, then extract unique submodules
             # Use a large limit to get all documents
@@ -185,6 +210,152 @@ class SearchEngine:
             
         except Exception as e:
             print(f"Error getting submodules: {e}")
+            return []
+    
+    def is_indexed(self) -> bool:
+        """Check if the index exists and has documents."""
+        if not self.index:
+            if not self.connect_to_meilisearch():
+                return False
+        
+        try:
+            # Try to get index stats to check if it exists and has documents
+            try:
+                stats = self.index.get_stats()
+                document_count = stats.get("numberOfDocuments", 0)
+                return document_count > 0
+            except MeilisearchApiError as e:
+                if e.status_code == 404:
+                    # Index doesn't exist
+                    return False
+                raise
+        except Exception as e:
+            print(f"Error checking index status: {e}")
+            return False
+    
+    def get_indexing_progress(self) -> Dict[str, Any]:
+        """Get indexing progress information."""
+        if not self.index:
+            if not self.connect_to_meilisearch():
+                return {
+                    "indexed": False,
+                    "progress": 0,
+                    "document_count": 0,
+                    "is_indexing": False,
+                    "estimated_time_remaining": None
+                }
+        
+        try:
+            # Get index stats
+            try:
+                stats = self.index.get_stats()
+                document_count = stats.get("numberOfDocuments", 0)
+                is_indexed = document_count > 0
+                
+                # Check for active indexing tasks
+                is_indexing = False
+                progress = 100 if is_indexed else 0
+                
+                try:
+                    # Get recent tasks to check if indexing is in progress
+                    tasks = self.index.get_tasks({"limit": 10})
+                    for task in tasks.get("results", []):
+                        task_type = task.get("type", "")
+                        task_status = task.get("status", "")
+                        # Check for document addition tasks
+                        if task_type in ["documentAdditionOrUpdate", "documentAddition"]:
+                            if task_status in ["enqueued", "processing"]:
+                                is_indexing = True
+                                # Try to get progress from task details
+                                if "details" in task:
+                                    details = task.get("details", {})
+                                    indexed_documents = details.get("indexedDocuments", 0)
+                                    total_documents = details.get("receivedDocuments", 0)
+                                    if total_documents > 0:
+                                        progress = min(95, int((indexed_documents / total_documents) * 100))
+                                break
+                except Exception:
+                    # If we can't get tasks, assume not indexing
+                    pass
+                
+                # Estimate time remaining (rough estimate: 1-3 minutes for typical indexing)
+                estimated_time_remaining = None
+                if is_indexing and progress < 100:
+                    # Rough estimate: if progress is 0, assume 2-3 minutes
+                    # If progress is > 0, estimate based on remaining percentage
+                    if progress == 0:
+                        estimated_time_remaining = 180  # 3 minutes
+                    else:
+                        # Estimate: remaining percentage * 2 seconds per percent
+                        remaining_percent = 100 - progress
+                        estimated_time_remaining = max(30, int(remaining_percent * 2))
+                
+                return {
+                    "indexed": is_indexed,
+                    "progress": progress,
+                    "document_count": document_count,
+                    "is_indexing": is_indexing,
+                    "estimated_time_remaining": estimated_time_remaining
+                }
+            except MeilisearchApiError as e:
+                if e.status_code == 404:
+                    # Index doesn't exist
+                    return {
+                        "indexed": False,
+                        "progress": 0,
+                        "document_count": 0,
+                        "is_indexing": False,
+                        "estimated_time_remaining": 180  # 3 minutes estimate
+                    }
+                raise
+        except Exception as e:
+            print(f"Error getting indexing progress: {e}")
+            return {
+                "indexed": False,
+                "progress": 0,
+                "document_count": 0,
+                "is_indexing": False,
+                "estimated_time_remaining": None
+            }
+    
+    def get_suggestions(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get search suggestions for autocomplete."""
+        if not self.index:
+            if not self.connect_to_meilisearch():
+                return []
+        
+        if not query or len(query.strip()) < 2:
+            return []
+        
+        try:
+            # Perform a search with a small limit to get suggestions
+            search_params = {
+                "q": query.strip(),
+                "limit": limit,
+                "attributesToRetrieve": ["title", "title_en", "prompt", "prompt_en"],
+            }
+            
+            results = self.index.search(**search_params)
+            suggestions = []
+            
+            for hit in results.get("hits", []):
+                # Extract the most relevant text for the suggestion
+                suggestion_text = hit.get("title_en") or hit.get("title") or ""
+                if not suggestion_text:
+                    suggestion_text = (hit.get("prompt_en") or hit.get("prompt") or "")[:50]
+                
+                if suggestion_text:
+                    suggestions.append({
+                        "text": suggestion_text,
+                        "title": hit.get("title_en") or hit.get("title") or "",
+                        "title_en": hit.get("title_en", ""),
+                        "title_zh": hit.get("title", ""),
+                    })
+            
+            return suggestions
+            
+        except Exception as e:
+            print(f"Error getting suggestions: {e}")
             return []
 
 

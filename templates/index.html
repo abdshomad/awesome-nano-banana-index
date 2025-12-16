@@ -14,13 +14,17 @@
         </header>
 
         <div class="search-section">
-            <input 
-                type="text" 
-                id="searchQuery" 
-                class="search-box" 
-                placeholder="Search prompts, cases, and documentation..."
-                autofocus
-            >
+            <div class="search-box-wrapper">
+                <input 
+                    type="text" 
+                    id="searchQuery" 
+                    class="search-box" 
+                    placeholder="Search prompts, cases, and documentation..."
+                    autofocus
+                    autocomplete="off"
+                >
+                <div id="autocomplete" class="autocomplete-dropdown"></div>
+            </div>
             
             <div class="filters">
                 <select id="langFilter" class="filter-select">
@@ -29,9 +33,40 @@
                     <option value="zh">Chinese</option>
                 </select>
                 
-                <select id="submoduleFilter" class="filter-select">
-                    <option value="">All Submodules</option>
-                </select>
+                <div class="submodule-filter-wrapper">
+                    <button id="submoduleToggle" class="submodule-toggle">
+                        <span id="submoduleToggleText">All Submodules</span>
+                        <span class="submodule-count" id="submoduleCount"></span>
+                    </button>
+                    <div id="submoduleDropdown" class="submodule-dropdown">
+                        <div class="submodule-dropdown-header">
+                            <label class="submodule-checkbox-label">
+                                <input type="checkbox" id="selectAllSubmodules" checked>
+                                <span>Select All</span>
+                            </label>
+                        </div>
+                        <div id="submoduleCheckboxes" class="submodule-checkboxes"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="indexStatus" class="index-status" style="display: none;">
+            <div class="index-status-content">
+                <div class="index-status-icon">⏳</div>
+                <div class="index-status-text">
+                    <strong>Index is being created...</strong>
+                    <p>The search index is not yet ready. Please wait patiently while we build the index. This may take a few minutes.</p>
+                    <div class="progress-container">
+                        <div class="progress-bar-wrapper">
+                            <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-info">
+                            <span id="progressText" class="progress-text">0%</span>
+                            <span id="estimatedTime" class="estimated-time"></span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -45,13 +80,141 @@
     <script>
         const searchQuery = document.getElementById('searchQuery');
         const langFilter = document.getElementById('langFilter');
-        const submoduleFilter = document.getElementById('submoduleFilter');
         const resultsDiv = document.getElementById('results');
         const loadingDiv = document.getElementById('loading');
+        const autocompleteDiv = document.getElementById('autocomplete');
+        const submoduleToggle = document.getElementById('submoduleToggle');
+        const submoduleDropdown = document.getElementById('submoduleDropdown');
+        const submoduleCheckboxes = document.getElementById('submoduleCheckboxes');
+        const selectAllSubmodules = document.getElementById('selectAllSubmodules');
+        const submoduleToggleText = document.getElementById('submoduleToggleText');
+        const submoduleCount = document.getElementById('submoduleCount');
+        const indexStatusDiv = document.getElementById('indexStatus');
         
         let searchTimeout;
+        let suggestionTimeout;
+        let selectedSubmodules = new Set();
+        let allSubmodules = [];
+        let indexStatusCheckInterval = null;
+        
+        // Autocomplete functionality
+        async function loadSuggestions(query) {
+            // Don't load suggestions if index is not ready
+            if (indexStatusDiv.style.display === 'block') {
+                autocompleteDiv.style.display = 'none';
+                return;
+            }
+            
+            if (query.length < 2) {
+                autocompleteDiv.innerHTML = '';
+                autocompleteDiv.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/suggestions?q=${encodeURIComponent(query)}&limit=5`);
+                const data = await response.json();
+                displaySuggestions(data.suggestions);
+            } catch (error) {
+                console.error('Error loading suggestions:', error);
+                autocompleteDiv.style.display = 'none';
+            }
+        }
+        
+        function displaySuggestions(suggestions) {
+            if (!suggestions || suggestions.length === 0) {
+                autocompleteDiv.style.display = 'none';
+                return;
+            }
+            
+            let html = '';
+            suggestions.forEach((suggestion, index) => {
+                const text = suggestion.title_en || suggestion.title || suggestion.text;
+                html += `
+                    <div class="autocomplete-item" data-index="${index}">
+                        ${escapeHtml(text)}
+                    </div>
+                `;
+            });
+            
+            autocompleteDiv.innerHTML = html;
+            autocompleteDiv.style.display = 'block';
+            
+            // Add click handlers
+            autocompleteDiv.querySelectorAll('.autocomplete-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const text = item.textContent.trim();
+                    searchQuery.value = text;
+                    autocompleteDiv.style.display = 'none';
+                    performSearch();
+                });
+            });
+        }
+        
+        searchQuery.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            clearTimeout(suggestionTimeout);
+            
+            const query = searchQuery.value.trim();
+            
+            // Load suggestions
+            suggestionTimeout = setTimeout(() => {
+                loadSuggestions(query);
+            }, 200);
+            
+            // Perform search
+            searchTimeout = setTimeout(performSearch, 300);
+        });
+        
+        // Hide autocomplete when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchQuery.contains(e.target) && !autocompleteDiv.contains(e.target)) {
+                autocompleteDiv.style.display = 'none';
+            }
+        });
+        
+        // Keyboard navigation for autocomplete
+        searchQuery.addEventListener('keydown', (e) => {
+            const items = autocompleteDiv.querySelectorAll('.autocomplete-item');
+            if (items.length === 0) return;
+            
+            const currentActive = autocompleteDiv.querySelector('.autocomplete-item.active');
+            let nextActive = null;
+            
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (currentActive) {
+                    nextActive = currentActive.nextElementSibling || items[0];
+                    currentActive.classList.remove('active');
+                } else {
+                    nextActive = items[0];
+                }
+                nextActive.classList.add('active');
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (currentActive) {
+                    nextActive = currentActive.previousElementSibling || items[items.length - 1];
+                    currentActive.classList.remove('active');
+                } else {
+                    nextActive = items[items.length - 1];
+                }
+                nextActive.classList.add('active');
+            } else if (e.key === 'Enter' && currentActive) {
+                e.preventDefault();
+                searchQuery.value = currentActive.textContent.trim();
+                autocompleteDiv.style.display = 'none';
+                performSearch();
+            } else if (e.key === 'Escape') {
+                autocompleteDiv.style.display = 'none';
+            }
+        });
         
         async function performSearch() {
+            // Don't search if index is not ready
+            if (indexStatusDiv.style.display === 'block') {
+                return;
+            }
+            
             const query = searchQuery.value.trim();
             if (!query) {
                 resultsDiv.innerHTML = '';
@@ -61,11 +224,20 @@
             loadingDiv.style.display = 'block';
             resultsDiv.innerHTML = '';
             
+            // Get selected submodules
+            const selectedSubs = Array.from(selectedSubmodules);
+            const submoduleParam = selectedSubs.length > 0 && selectedSubs.length < allSubmodules.length
+                ? selectedSubs.join(',')
+                : '';
+            
             const params = new URLSearchParams({
                 q: query,
                 lang: langFilter.value,
-                submodule: submoduleFilter.value || ''
             });
+            
+            if (submoduleParam) {
+                params.append('submodule', submoduleParam);
+            }
             
             try {
                 const response = await fetch(`/api/search?${params}`);
@@ -109,26 +281,213 @@
             return div.innerHTML;
         }
         
-        searchQuery.addEventListener('input', () => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(performSearch, 300);
+        // Submodule multi-select functionality
+        function updateSubmoduleToggle() {
+            const count = selectedSubmodules.size;
+            if (count === 0 || count === allSubmodules.length) {
+                submoduleToggleText.textContent = 'All Submodules';
+                submoduleCount.textContent = '';
+            } else {
+                submoduleToggleText.textContent = `${count} selected`;
+                submoduleCount.textContent = `(${count})`;
+            }
+            selectAllSubmodules.checked = count === allSubmodules.length;
+        }
+        
+        function toggleSubmodule(submodule, checked) {
+            if (checked) {
+                selectedSubmodules.add(submodule);
+            } else {
+                selectedSubmodules.delete(submodule);
+            }
+            updateSubmoduleToggle();
+            performSearch();
+        }
+        
+        selectAllSubmodules.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            selectedSubmodules.clear();
+            if (checked) {
+                allSubmodules.forEach(sub => selectedSubmodules.add(sub));
+            }
+            
+            submoduleCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                if (cb !== selectAllSubmodules) {
+                    cb.checked = checked;
+                }
+            });
+            
+            updateSubmoduleToggle();
+            performSearch();
+        });
+        
+        submoduleToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            submoduleDropdown.style.display = submoduleDropdown.style.display === 'block' ? 'none' : 'block';
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!submoduleToggle.contains(e.target) && !submoduleDropdown.contains(e.target)) {
+                submoduleDropdown.style.display = 'none';
+            }
         });
         
         langFilter.addEventListener('change', performSearch);
-        submoduleFilter.addEventListener('change', performSearch);
         
-        // Load submodules on page load
-        fetch('/api/submodules')
-            .then(r => r.json())
-            .then(data => {
-                data.submodules.forEach(sub => {
-                    const option = document.createElement('option');
-                    option.value = sub;
-                    option.textContent = sub;
-                    submoduleFilter.appendChild(option);
+        // Format time in seconds to human readable
+        function formatTime(seconds) {
+            if (!seconds || seconds <= 0) return '';
+            
+            if (seconds < 60) {
+                return `~${seconds} seconds`;
+            } else {
+                const minutes = Math.ceil(seconds / 60);
+                return `~${minutes} minute${minutes > 1 ? 's' : ''}`;
+            }
+        }
+        
+        let indexingTriggered = false;
+        
+        // Trigger indexing
+        async function triggerIndexing() {
+            if (indexingTriggered) return;
+            
+            try {
+                indexingTriggered = true;
+                const response = await fetch('/api/trigger-index', { method: 'POST' });
+                const data = await response.json();
+                console.log('Indexing triggered:', data);
+            } catch (error) {
+                console.error('Error triggering indexing:', error);
+                indexingTriggered = false; // Allow retry on error
+            }
+        }
+        
+        // Check index status
+        async function checkIndexStatus() {
+            try {
+                const response = await fetch('/api/index-status');
+                const data = await response.json();
+                
+                if (data.indexed) {
+                    // Index is ready
+                    indexStatusDiv.style.display = 'none';
+                    if (indexStatusCheckInterval) {
+                        clearInterval(indexStatusCheckInterval);
+                        indexStatusCheckInterval = null;
+                    }
+                    // Enable search functionality
+                    searchQuery.disabled = false;
+                    searchQuery.placeholder = 'Search prompts, cases, and documentation...';
+                    // Load submodules once index is ready
+                    loadSubmodules();
+                } else {
+                    // Index is not ready yet
+                    indexStatusDiv.style.display = 'block';
+                    // Disable search functionality
+                    searchQuery.disabled = true;
+                    searchQuery.placeholder = 'Index is being created, please wait...';
+                    
+                    // Auto-trigger indexing if not already triggered and not currently indexing
+                    if (!indexingTriggered && !data.is_indexing && data.document_count === 0) {
+                        console.log('Auto-triggering index creation...');
+                        triggerIndexing();
+                    }
+                    
+                    // Update progress bar
+                    const progressBar = document.getElementById('progressBar');
+                    const progressText = document.getElementById('progressText');
+                    const estimatedTime = document.getElementById('estimatedTime');
+                    
+                    let progress = data.progress || 0;
+                    
+                    // If indexing just started, show minimal progress
+                    if (data.is_indexing && progress === 0) {
+                        progress = 5; // Show 5% to indicate it's starting
+                    }
+                    
+                    progressBar.style.width = `${progress}%`;
+                    progressText.textContent = `${progress}%`;
+                    
+                    // Update estimated time
+                    if (data.estimated_time_remaining) {
+                        estimatedTime.textContent = `Estimated time remaining: ${formatTime(data.estimated_time_remaining)}`;
+                    } else if (data.is_indexing) {
+                        estimatedTime.textContent = 'Indexing in progress...';
+                    } else {
+                        estimatedTime.textContent = 'Preparing to index...';
+                    }
+                    
+                    // Show document count if available
+                    if (data.document_count > 0) {
+                        const docInfo = ` (${data.document_count} documents indexed)`;
+                        if (!estimatedTime.textContent.includes('documents')) {
+                            estimatedTime.textContent += docInfo;
+                        }
+                    }
+                    
+                    // Start periodic checking if not already started
+                    if (!indexStatusCheckInterval) {
+                        indexStatusCheckInterval = setInterval(checkIndexStatus, 2000); // Check every 2 seconds
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking index status:', error);
+                // On error, show status message and keep checking
+                indexStatusDiv.style.display = 'block';
+                searchQuery.disabled = true;
+                if (!indexStatusCheckInterval) {
+                    indexStatusCheckInterval = setInterval(checkIndexStatus, 5000);
+                }
+            }
+        }
+        
+        // Load submodules
+        function loadSubmodules() {
+            fetch('/api/submodules')
+                .then(r => r.json())
+                .then(data => {
+                    allSubmodules = data.submodules || [];
+                    if (allSubmodules.length === 0) {
+                        // No submodules yet, but index might be ready
+                        return;
+                    }
+                    
+                    // Clear existing checkboxes
+                    submoduleCheckboxes.innerHTML = '';
+                    selectedSubmodules.clear();
+                    
+                    data.submodules.forEach(sub => {
+                        selectedSubmodules.add(sub); // Select all by default
+                        
+                        const label = document.createElement('label');
+                        label.className = 'submodule-checkbox-label';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = sub;
+                        checkbox.checked = true;
+                        checkbox.addEventListener('change', (e) => {
+                            toggleSubmodule(sub, e.target.checked);
+                        });
+                        
+                        const span = document.createElement('span');
+                        span.textContent = sub;
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(span);
+                        submoduleCheckboxes.appendChild(label);
+                    });
+                    updateSubmoduleToggle();
+                })
+                .catch(err => {
+                    console.error('Error loading submodules:', err);
                 });
-            })
-            .catch(err => console.error('Error loading submodules:', err));
+        }
+        
+        // Check index status on page load
+        checkIndexStatus();
     </script>
 </body>
 </html>

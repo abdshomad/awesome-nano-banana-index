@@ -1,13 +1,15 @@
 """FastAPI web application for the search engine."""
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from .search import get_search_engine
+from .indexer import build_index
 from .config import BASE_DIR
+import threading
 
 app = FastAPI(
     title="Nano Banana Search Engine",
@@ -148,7 +150,7 @@ async def index(request: Request):
 async def search_api(
     q: str = Query(..., description="Search query"),
     lang: Optional[str] = Query("both", description="Language filter: zh, en, or both"),
-    submodule: Optional[str] = Query(None, description="Filter by submodule"),
+    submodule: Optional[str] = Query(None, description="Filter by submodule (comma-separated for multiple)"),
     limit: Optional[int] = Query(20, description="Number of results"),
     offset: Optional[int] = Query(0, description="Offset for pagination")
 ):
@@ -161,7 +163,15 @@ async def search_api(
     # Build filters
     filters = []
     if submodule:
-        filters.append(f"submodule = '{submodule}'")
+        # Handle multiple submodules (comma-separated)
+        submodules = [s.strip() for s in submodule.split(",") if s.strip()]
+        if submodules:
+            if len(submodules) == 1:
+                filters.append(f"submodule = '{submodules[0]}'")
+            else:
+                # Multiple submodules: use OR condition
+                submodule_filter = " OR ".join([f"submodule = '{s}'" for s in submodules])
+                filters.append(f"({submodule_filter})")
     
     filter_str = " AND ".join(filters) if filters else None
     
@@ -175,6 +185,22 @@ async def search_api(
     )
     
     return results
+
+
+@app.get("/api/suggestions")
+async def get_suggestions(
+    q: str = Query(..., description="Partial search query"),
+    limit: Optional[int] = Query(5, description="Number of suggestions")
+):
+    """Get search suggestions for autocomplete."""
+    search_engine = get_search_engine()
+    
+    if not search_engine.connect_to_meilisearch():
+        raise HTTPException(status_code=503, detail="Search service unavailable")
+    
+    suggestions = search_engine.get_suggestions(q, limit=limit)
+    
+    return {"suggestions": suggestions}
 
 
 @app.get("/api/case/{case_id}")
@@ -204,6 +230,93 @@ async def get_submodules():
     submodules = search_engine.get_submodules()
     
     return {"submodules": submodules}
+
+
+# Global flag to track if indexing is in progress
+_indexing_in_progress = False
+
+def run_indexing():
+    """Run indexing in background thread."""
+    global _indexing_in_progress
+    _indexing_in_progress = True
+    try:
+        search_engine = get_search_engine()
+        
+        if not search_engine.connect_to_meilisearch():
+            print("Error: Could not connect to Meilisearch")
+            return
+        
+        # Create index if needed
+        if not search_engine.create_index():
+            print("Error: Could not create index")
+            return
+        
+        # Build index
+        documents = build_index(rebuild=False)
+        
+        if not documents:
+            print("No documents found to index")
+            return
+        
+        # Index documents
+        if search_engine.index_documents(documents):
+            print(f"Successfully indexed {len(documents)} documents")
+        else:
+            print("Error: Failed to index documents")
+    except Exception as e:
+        print(f"Error during indexing: {e}")
+    finally:
+        _indexing_in_progress = False
+
+@app.post("/api/trigger-index")
+async def trigger_index(background_tasks: BackgroundTasks):
+    """Trigger index creation."""
+    global _indexing_in_progress
+    
+    if _indexing_in_progress:
+        return {"message": "Indexing already in progress", "status": "running"}
+    
+    search_engine = get_search_engine()
+    if not search_engine.connect_to_meilisearch():
+        raise HTTPException(status_code=503, detail="Search service unavailable")
+    
+    # Check if already indexed
+    if search_engine.is_indexed():
+        return {"message": "Index already exists", "status": "complete"}
+    
+    # Start indexing in background thread
+    thread = threading.Thread(target=run_indexing, daemon=True)
+    thread.start()
+    
+    return {"message": "Indexing started", "status": "started"}
+
+@app.get("/api/index-status")
+async def get_index_status():
+    """Check if the index exists and has documents, with progress information."""
+    global _indexing_in_progress
+    
+    search_engine = get_search_engine()
+    
+    if not search_engine.connect_to_meilisearch():
+        raise HTTPException(status_code=503, detail="Search service unavailable")
+    
+    progress_info = search_engine.get_indexing_progress()
+    
+    # If indexing is in progress but we can't detect it from Meilisearch tasks,
+    # use our global flag
+    if _indexing_in_progress and not progress_info["indexed"]:
+        progress_info["is_indexing"] = True
+        if progress_info["progress"] == 0:
+            progress_info["progress"] = 5  # Show some progress
+    
+    return {
+        "indexed": progress_info["indexed"],
+        "progress": progress_info["progress"],
+        "document_count": progress_info["document_count"],
+        "is_indexing": progress_info["is_indexing"] or _indexing_in_progress,
+        "estimated_time_remaining": progress_info["estimated_time_remaining"],
+        "message": "Index is ready" if progress_info["indexed"] else "Index is being created, please wait..."
+    }
 
 
 if __name__ == "__main__":

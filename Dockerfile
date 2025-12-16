@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN chmod +x /usr/local/bin/uv
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Copy dependency files and package source
+COPY pyproject.toml README.md ./
+COPY search/ ./search/
 
 # Install Python dependencies using uv
 # Use --no-dev to skip dev dependencies in production
