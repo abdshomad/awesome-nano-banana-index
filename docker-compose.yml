@@ -1,0 +1,53 @@
+services:
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    volumes:
+      - meilisearch_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILISEARCH_API_KEY:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7700/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - search_network
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY:-}
+      - INDEX_NAME=${INDEX_NAME:-nano_banana_index}
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    networks:
+      - search_network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${EXPOSED_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - fastapi
+    networks:
+      - search_network
+    restart: unless-stopped
+
+volumes:
+  meilisearch_data:
+
+networks:
+  search_network:
+    driver: bridge

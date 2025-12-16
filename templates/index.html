@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nano Banana Search Engine</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🍌 Nano Banana Search Engine</h1>
+            <p>Search through awesome-nano-banana-index repositories</p>
+        </header>
+
+        <div class="search-section">
+            <input 
+                type="text" 
+                id="searchQuery" 
+                class="search-box" 
+                placeholder="Search prompts, cases, and documentation..."
+                autofocus
+            >
+            
+            <div class="filters">
+                <select id="langFilter" class="filter-select">
+                    <option value="both">All Languages</option>
+                    <option value="en">English</option>
+                    <option value="zh">Chinese</option>
+                </select>
+                
+                <select id="submoduleFilter" class="filter-select">
+                    <option value="">All Submodules</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            Searching...
+        </div>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        const searchQuery = document.getElementById('searchQuery');
+        const langFilter = document.getElementById('langFilter');
+        const submoduleFilter = document.getElementById('submoduleFilter');
+        const resultsDiv = document.getElementById('results');
+        const loadingDiv = document.getElementById('loading');
+        
+        let searchTimeout;
+        
+        async function performSearch() {
+            const query = searchQuery.value.trim();
+            if (!query) {
+                resultsDiv.innerHTML = '';
+                return;
+            }
+            
+            loadingDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+            
+            const params = new URLSearchParams({
+                q: query,
+                lang: langFilter.value,
+                submodule: submoduleFilter.value || ''
+            });
+            
+            try {
+                const response = await fetch(`/api/search?${params}`);
+                const data = await response.json();
+                displayResults(data);
+            } catch (error) {
+                resultsDiv.innerHTML = '<div class="error">Error performing search. Please try again.</div>';
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        }
+        
+        function displayResults(data) {
+            if (!data.hits || data.hits.length === 0) {
+                resultsDiv.innerHTML = '<div class="no-results">No results found</div>';
+                return;
+            }
+            
+            let html = `<div class="results-header">Found ${data.total} result(s)</div>`;
+            data.hits.forEach(hit => {
+                const title = hit.title_en || hit.title || 'Untitled';
+                const prompt = hit.prompt_en || hit.prompt || '';
+                const promptPreview = prompt.length > 200 ? prompt.substring(0, 200) + '...' : prompt;
+                
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">${escapeHtml(title)}</div>
+                        ${hit.author ? `<div class="result-meta"><strong>Author:</strong> ${escapeHtml(hit.author)}</div>` : ''}
+                        ${hit.submodule ? `<div class="result-meta"><strong>Submodule:</strong> <span class="submodule-tag">${escapeHtml(hit.submodule)}</span></div>` : ''}
+                        ${prompt ? `<div class="result-prompt">${escapeHtml(promptPreview)}</div>` : ''}
+                        <div class="result-path">${escapeHtml(hit.path)}</div>
+                    </div>
+                `;
+            });
+            resultsDiv.innerHTML = html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        searchQuery.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(performSearch, 300);
+        });
+        
+        langFilter.addEventListener('change', performSearch);
+        submoduleFilter.addEventListener('change', performSearch);
+        
+        // Load submodules on page load
+        fetch('/api/submodules')
+            .then(r => r.json())
+            .then(data => {
+                data.submodules.forEach(sub => {
+                    const option = document.createElement('option');
+                    option.value = sub;
+                    option.textContent = sub;
+                    submoduleFilter.appendChild(option);
+                });
+            })
+            .catch(err => console.error('Error loading submodules:', err));
+    </script>
+</body>
+</html>
