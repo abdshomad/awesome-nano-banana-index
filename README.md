@@ -53,9 +53,22 @@ This repository includes a powerful search engine for indexing and searching all
 3. **Access the web interface**:
    Open `http://localhost:8080` (or your configured port)
 
+#### Option 3: Run Locally (No Docker)
+
+For Mac/Linux/Windows users who prefer to run directly:
+
+1.  **Run the script**:
+    ```bash
+    ./run_local.sh
+    ```
+    This handles dependencies and starts the service.
+    See [docs/RUN_WITHOUT_DOCKER.md](./docs/RUN_WITHOUT_DOCKER.md) for details.
+
 ### Management Scripts
 
-The repository includes convenient shell scripts for managing the Docker services:
+The repository includes convenient shell scripts for managing the services:
+
+#### Docker Services
 
 - **`./install.sh`** - Install dependencies, build images, and start services
 - **`./start.sh`** - Start all Docker services in background
@@ -63,6 +76,10 @@ The repository includes convenient shell scripts for managing the Docker service
 - **`./restart.sh`** - Restart all Docker services (stop then start)
 - **`./run-indexing.sh`** - Run the indexing process in background
 - **`./monitor.sh`** - Display real-time logs from all services (foreground)
+
+#### Local Setup (No Docker)
+- **`./run_local.sh`** - Run application locally (installs dependencies, manages Meilisearch)
+- **`./update_submodules.sh`** - Update all submodules to latest remote versions
 
 All scripts run in background except `monitor.sh`, which displays logs interactively.
 
@@ -82,6 +99,8 @@ All scripts run in background except `monitor.sh`, which displays logs interacti
 For detailed documentation on using the search engine, see [search/README.md](./search/README.md).
 
 For Docker setup notes and troubleshooting, see [docs/DOCKER_SETUP.md](./docs/DOCKER_SETUP.md).
+
+For running without Docker, see [docs/RUN_WITHOUT_DOCKER.md](./docs/RUN_WITHOUT_DOCKER.md).
 
 ## Repository List
 
@@ -107,13 +126,13 @@ git clone --recurse-submodules <repository-url>
 
 ### Updating All Submodules
 
-To update all submodules to their latest commits from their respective remote repositories:
+To update all submodules to their latest commits from their respective remote repositories, use the provided script:
 
 ```bash
-git submodule update --remote --merge
+./update_submodules.sh
 ```
 
-This will fetch the latest changes from each submodule's remote repository and merge them into your local submodule checkouts.
+This script handles the update process robustly, avoiding common "unrelated history" errors by resetting submodules to their remote state. It also triggers a search index update if the service is running.
 
 ### Updating to Committed Versions
 
@@ -144,6 +163,8 @@ awesome-nano-banana-index/
 ├── stop.sh             # Stop services script
 ├── restart.sh          # Restart services script
 ├── run-indexing.sh     # Run indexing script
+├── run_local.sh        # Local run script (No Docker)
+├── update_submodules.sh # Submodule update script
 ├── monitor.sh          # Monitor logs script
 └── repo-list.md        # List of indexed repositories
 ```
