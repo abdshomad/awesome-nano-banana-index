@@ -96,6 +96,7 @@
         let selectedSubmodules = new Set();
         let allSubmodules = [];
         let indexStatusCheckInterval = null;
+        let submoduleRepos = {}; // Mapping of submodule paths to repository URLs
         
         // Autocomplete functionality
         async function loadSuggestions(query) {
@@ -262,17 +263,60 @@
                 const prompt = hit.prompt_en || hit.prompt || '';
                 const promptPreview = prompt.length > 200 ? prompt.substring(0, 200) + '...' : prompt;
                 
+                // Construct GitHub URL to original repository
+                let githubUrl = '#';
+                if (hit.path && hit.submodule) {
+                    // Get the original repository URL for this submodule
+                    const repoUrl = submoduleRepos[hit.submodule];
+                    
+                    if (repoUrl) {
+                        // Extract relative path within the submodule
+                        // Path format: "submodule-name/path/within/submodule"
+                        // We need to remove the submodule name prefix
+                        let relativePath = hit.path;
+                        if (hit.path.startsWith(hit.submodule + '/')) {
+                            relativePath = hit.path.substring(hit.submodule.length + 1);
+                        }
+                        
+                        // Convert GitHub URL from .git to web URL and add tree/blob path
+                        // e.g., https://github.com/user/repo.git -> https://github.com/user/repo
+                        let webUrl = repoUrl.replace(/\.git$/, '');
+                        const encodedPath = encodeURIComponent(relativePath).replace(/%2F/g, '/');
+                        
+                        if (hit.type === 'case') {
+                            // For cases, link to directory (tree view)
+                            githubUrl = `${webUrl}/tree/main/${encodedPath}`;
+                        } else if (hit.path.endsWith('.md') || hit.path.endsWith('.yml') || hit.path.endsWith('.yaml')) {
+                            // For files, link to file (blob view)
+                            githubUrl = `${webUrl}/blob/main/${encodedPath}`;
+                        } else {
+                            // Default to tree view for directories
+                            githubUrl = `${webUrl}/tree/main/${encodedPath}`;
+                        }
+                    }
+                }
+                
                 html += `
-                    <div class="result-item">
+                    <div class="result-item clickable" data-url="${escapeHtml(githubUrl)}">
                         <div class="result-title">${escapeHtml(title)}</div>
                         ${hit.author ? `<div class="result-meta"><strong>Author:</strong> ${escapeHtml(hit.author)}</div>` : ''}
                         ${hit.submodule ? `<div class="result-meta"><strong>Submodule:</strong> <span class="submodule-tag">${escapeHtml(hit.submodule)}</span></div>` : ''}
                         ${prompt ? `<div class="result-prompt">${escapeHtml(promptPreview)}</div>` : ''}
-                        <div class="result-path">${escapeHtml(hit.path)}</div>
+                        <div class="result-path">📁 ${escapeHtml(hit.path)}</div>
                     </div>
                 `;
             });
             resultsDiv.innerHTML = html;
+            
+            // Add click handlers to result items
+            resultsDiv.querySelectorAll('.result-item.clickable').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    const url = item.getAttribute('data-url');
+                    if (url && url !== '#') {
+                        window.open(url, '_blank');
+                    }
+                });
+            });
         }
         
         function escapeHtml(text) {
@@ -485,6 +529,21 @@
                     console.error('Error loading submodules:', err);
                 });
         }
+        
+        // Load submodule repository mappings
+        function loadSubmoduleRepos() {
+            fetch('/api/submodule-repos')
+                .then(r => r.json())
+                .then(data => {
+                    submoduleRepos = data.repositories || {};
+                })
+                .catch(err => {
+                    console.error('Error loading submodule repositories:', err);
+                });
+        }
+        
+        // Load submodule repository mappings on page load
+        loadSubmoduleRepos();
         
         // Check index status on page load
         checkIndexStatus();

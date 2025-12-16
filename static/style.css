@@ -227,9 +227,15 @@ header p {
     background: #fafafa;
 }
 
-.result-item:hover {
+.result-item.clickable {
+    cursor: pointer;
+}
+
+.result-item.clickable:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     transform: translateY(-2px);
+    background: #f0f9ff;
+    border-color: #2563eb;
 }
 
 .result-title {

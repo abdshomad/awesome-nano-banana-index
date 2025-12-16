@@ -19,6 +19,27 @@ This repository includes a powerful search engine for indexing and searching all
 
 ### Quick Start
 
+#### Option 1: Using Shell Scripts (Recommended)
+
+1. **Install and start services**:
+   ```bash
+   ./install.sh
+   ```
+   This will:
+   - Initialize git submodules
+   - Build Docker images (if needed)
+   - Start all services in the background
+
+2. **Run indexing** (if not auto-triggered):
+   ```bash
+   ./run-indexing.sh
+   ```
+
+3. **Access the web interface**:
+   Open `http://localhost:8080` (or your configured port from `.env`)
+
+#### Option 2: Manual Docker Commands
+
 1. **Start the search engine**:
    ```bash
    docker compose up -d
@@ -32,14 +53,29 @@ This repository includes a powerful search engine for indexing and searching all
 3. **Access the web interface**:
    Open `http://localhost:8080` (or your configured port)
 
+### Management Scripts
+
+The repository includes convenient shell scripts for managing the Docker services:
+
+- **`./install.sh`** - Install dependencies, build images, and start services
+- **`./start.sh`** - Start all Docker services in background
+- **`./stop.sh`** - Stop all Docker services
+- **`./restart.sh`** - Restart all Docker services (stop then start)
+- **`./run-indexing.sh`** - Run the indexing process in background
+- **`./monitor.sh`** - Display real-time logs from all services (foreground)
+
+All scripts run in background except `monitor.sh`, which displays logs interactively.
+
 ### Features
 
 - 🔍 **Full-text search** across all case files, prompts, and documentation
 - 🌐 **Multilingual support** for Chinese and English content
 - ⚡ **Fast search** powered by Meilisearch
 - 💻 **CLI interface** for command-line usage
-- 🎨 **Web interface** with modern UI
+- 🎨 **Web interface** with modern UI and real-time search
+- 🔗 **Direct links** to original repository files - click any result to open the file in its original GitHub repository
 - 🐳 **Docker Compose** setup for easy deployment
+- 📦 **Smart indexing** - prevents recreating index if it already exists
 
 ### Documentation
 
@@ -103,6 +139,12 @@ awesome-nano-banana-index/
 ├── docker-compose.yml  # Docker Compose configuration
 ├── Dockerfile          # FastAPI service Dockerfile
 ├── pyproject.toml      # Python dependencies (uv)
+├── install.sh          # Installation script
+├── start.sh            # Start services script
+├── stop.sh             # Stop services script
+├── restart.sh          # Restart services script
+├── run-indexing.sh     # Run indexing script
+├── monitor.sh          # Monitor logs script
 └── repo-list.md        # List of indexed repositories
 ```
 

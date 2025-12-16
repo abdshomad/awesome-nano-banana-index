@@ -8,7 +8,8 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 from .search import get_search_engine
 from .indexer import build_index
-from .config import BASE_DIR
+from .config import BASE_DIR, GITMODULES_FILE
+from .utils import parse_gitmodules
 import threading
 
 app = FastAPI(
@@ -230,6 +231,22 @@ async def get_submodules():
     submodules = search_engine.get_submodules()
     
     return {"submodules": submodules}
+
+
+@app.get("/api/submodule-repos")
+async def get_submodule_repos():
+    """Get mapping of submodule names to their original repository URLs."""
+    submodules = parse_gitmodules(GITMODULES_FILE)
+    
+    # Create a mapping: submodule path -> repository URL
+    repo_map = {}
+    for submodule in submodules:
+        path = submodule.get("path", "")
+        url = submodule.get("url", "")
+        if path and url:
+            repo_map[path] = url
+    
+    return {"repositories": repo_map}
 
 
 # Global flag to track if indexing is in progress
