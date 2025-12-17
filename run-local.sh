@@ -20,11 +20,16 @@ if ! command -v uv &> /dev/null; then
 fi
 
 MEILISEARCH_PID=""
+WATCHER_PID=""
 
 # Function to cleanup background processes
 cleanup() {
+    if [ -n "$WATCHER_PID" ]; then
+        echo -e "\n${YELLOW}Stopping file watcher (PID: $WATCHER_PID)...${NC}"
+        kill "$WATCHER_PID" 2>/dev/null || true
+    fi
     if [ -n "$MEILISEARCH_PID" ]; then
-        echo -e "\n${YELLOW}Stopping Meilisearch (PID: $MEILISEARCH_PID)...${NC}"
+        echo -e "${YELLOW}Stopping Meilisearch (PID: $MEILISEARCH_PID)...${NC}"
         kill "$MEILISEARCH_PID" 2>/dev/null || true
     fi
     exit 0
@@ -79,9 +84,15 @@ export INDEX_NAME="nano_banana_index"
 echo -e "${YELLOW}Running search indexer...${NC}"
 uv run python -m search index
 
+# Start file watcher in background
+echo -e "${YELLOW}Starting file watcher for auto re-indexing...${NC}"
+uv run python watch_and_index.py > /dev/null 2>&1 &
+WATCHER_PID=$!
+echo -e "${GREEN}File watcher started (PID: $WATCHER_PID)${NC}"
+
 # Start the web server
 echo -e "${GREEN}Starting web server...${NC}"
-echo -e "Access the app at: ${GREEN}http://localhost:8000${NC}"
+echo -e "Access the viewer at: ${GREEN}http://localhost:8000/viewer.html${NC}"
 echo -e "Press Ctrl+C to stop."
 
-uv run uvicorn search.web_app:app --host 0.0.0.0 --port 8000 --reload
+python3 -m http.server 8000

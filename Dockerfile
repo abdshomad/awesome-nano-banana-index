@@ -25,5 +25,5 @@ COPY . .
 # Expose port (though it won't be directly exposed, only through nginx)
 EXPOSE 8000
 
-# Run FastAPI application using uv
-CMD ["uv", "run", "uvicorn", "search.web_app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run search indexer, start file watcher in background, then start HTTP server
+CMD ["sh", "-c", "uv run python -m search index && uv run python watch_and_index.py & python3 -m http.server 8000"]

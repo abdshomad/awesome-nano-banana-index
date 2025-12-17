@@ -6,7 +6,7 @@ services:
     environment:
       - MEILI_MASTER_KEY=${MEILISEARCH_API_KEY:-dev_master_key_change_in_production}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:7700/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:7700/health || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -15,7 +15,7 @@ services:
       - search_network
     restart: unless-stopped
 
-  fastapi:
+  web_server:
     build:
       context: .
       dockerfile: Dockerfile
@@ -40,13 +40,14 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - fastapi
+      - web_server
     networks:
       - search_network
     restart: unless-stopped
 
 volumes:
   meilisearch_data:
+
 
 networks:
   search_network:
