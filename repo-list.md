@@ -8,7 +8,7 @@ A curated list of repositories related to awesome-nano-banana and Gemini-2.5-Fla
 * https://github.com/JimmyLv/awesome-nano-banana.git
 * https://github.com/muset-ai/awesome-nano-banana-pro.git
 * https://github.com/PicoTrex/Awesome-Nano-Banana-images.git
-* https://github.com/SamurAIGPT/awesome-nano-banana.git
+
 * https://github.com/Super-Maker-AI/awesome-nano-banana.git
 * https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts.git
 * https://github.com/ZeroLu/awesome-nanobanana-pro.git

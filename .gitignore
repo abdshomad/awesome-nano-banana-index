@@ -2,3 +2,4 @@
 *.log
 screenshots/*
 data.ms/*
+database/*

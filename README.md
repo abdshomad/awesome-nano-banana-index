@@ -142,7 +142,39 @@ To update all submodules to the specific commits referenced in this repository:
 git submodule update --recursive
 ```
 
+
+## Text-Based Database
+
+A simple, version-controlled database of prompts is available in the `database/` directory. Each entry is a Markdown file with YAML frontmatter.
+
+### Managing Entries
+
+A helper script `manage_db.py` is provided to manage the database.
+
+1. **List entries**:
+   ```bash
+   python manage_db.py list
+   ```
+
+2. **Add a new entry**:
+   ```bash
+   python manage_db.py add
+   ```
+   Follow the interactive prompts to create a new file.
+
+3. **Validate entries**:
+   ```bash
+   python manage_db.py validate
+   ```
+
+4. **Extract from submodules**:
+   ```bash
+   python manage_db.py extract --source all
+   ```
+   This automates the population of the database from included submodules.
+
 ## Project Structure
+
 
 ```
 awesome-nano-banana-index/
