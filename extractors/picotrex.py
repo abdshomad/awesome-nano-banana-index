@@ -14,26 +14,29 @@ class PicoTrexExtractor(BaseExtractor):
              print(f"Warning: File {readme_path} not found.")
              return 0
 
-        with open(readme_path, 'r') as f:
+        with open(readme_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
         # Logic for PicoTrex:
         # Almost identical to Mickorix
         # ### 例 X: [Title](link) (by [@Author](link))
         
-        case_pattern = re.compile(r'### (?:Case|Example|例) (\d+): (.*?)[（\(]by \[@(.*?)\]\(.*?\)[）\)](.*?)(?=### (?:Case|Example|例)|\Z)', re.DOTALL)
+        case_pattern = re.compile(r'### (?:Case|Example|例) (\d+): (.*?)[（\(]by \[@(.*?)\]\((.*?)\)[）\)](.*?)(?=### (?:Case|Example|例)|\Z)', re.DOTALL)
         
         for match in case_pattern.finditer(content):
             case_id = match.group(1)
             raw_title = match.group(2).strip()
             author = match.group(3)
-            body = match.group(4)
+            author_url = match.group(4)
+            body = match.group(5)
 
             # Clean title
             title = raw_title
-            link_match = re.match(r'\[(.*?)\]\(.*?\)', raw_title)
+            original_url = ""
+            link_match = re.match(r'\[(.*?)\]\((.*?)\)', raw_title)
             if link_match:
                 title = link_match.group(1)
+                original_url = link_match.group(2)
             
             # Extract Image
             image_url = ""
@@ -53,6 +56,8 @@ class PicoTrexExtractor(BaseExtractor):
             metadata = {
                 "title": title,
                 "author": author,
+                "author_url": author_url,
+                "original_url": original_url,
                 "repo_url": "https://github.com/PicoTrex/Awesome-Nano-Banana-images",
                 "image_url": image_url,
                 "tags": ["picotrex", f"case-{case_id}"]

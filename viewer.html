@@ -310,6 +310,47 @@
             margin-top: 0.5rem;
             font-size: 0.8rem;
         }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+            padding-bottom: 2rem;
+        }
+
+        .page-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            width: 40px;
+            height: 40px;
+            border-radius: 0.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 
@@ -332,12 +373,35 @@
                 <button id="gridBtn" class="active" onclick="setView('grid')">Grid</button>
                 <button id="listBtn" onclick="setView('list')">List</button>
             </div>
+            <select id="gridSize" onchange="setGridColumns(this.value)"
+                style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border); padding:0.5rem; border-radius:0.5rem;"
+                title="Grid Columns">
+                <option value="auto">Auto Columns</option>
+                <option value="2">2 Columns</option>
+                <option value="3">3 Columns</option>
+                <option value="4">4 Columns</option>
+                <option value="5">5 Columns</option>
+                <option value="6">6 Columns</option>
+            </select>
+            <select id="pageSize" onchange="setItemsPerPage(this.value)"
+                style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border); padding:0.5rem; border-radius:0.5rem;"
+                title="Items per page">
+                <option value="12">12 per page</option>
+                <option value="24" selected>24 per page</option>
+                <option value="48">48 per page</option>
+                <option value="96">96 per page</option>
+                <option value="fit">Auto Fit (Screen)</option>
+                <option value="all">Show All</option>
+            </select>
         </div>
     </header>
 
     <div class="container">
         <div id="content" class="grid-view">
             <!-- Content injected here -->
+        </div>
+        <div id="pagination" class="pagination">
+            <!-- Pagination injected here -->
         </div>
     </div>
 
@@ -388,6 +452,9 @@
         let dbData = [];
         let currentView = 'grid';
         let currentGroupBy = 'none';
+        let currentPage = 1;
+        let itemsPerPage = 24;
+        let gridColumns = 'auto';
 
         // Populate Languages
         function populateLanguages(data) {
@@ -418,14 +485,106 @@
 
         // Search
         document.getElementById('searchInput').addEventListener('input', (e) => {
+            currentPage = 1;
             applyFilters();
         });
 
         // Group By Switcher
         function setGroupBy(val) {
             currentGroupBy = val;
+            currentPage = 1;
             applyFilters();
         }
+
+        // Grid Columns Switcher
+        function setGridColumns(val) {
+            gridColumns = val;
+            if (itemsPerPage === 'fit') {
+                calculateFit();
+            } else {
+                render(getLastFiltered());
+            }
+        }
+
+        // Items Per Page Switcher
+        function setItemsPerPage(val) {
+            if (val === 'fit') {
+                itemsPerPage = 'fit';
+                calculateFit();
+            } else {
+                itemsPerPage = val === 'all' ? 'all' : parseInt(val);
+                currentPage = 1;
+                applyFilters();
+            }
+        }
+
+        // Auto Fit Logic
+        function calculateFit() {
+            if (itemsPerPage !== 'fit') return;
+
+            // Approximate calculations
+            // Header ~ 80px
+            // Pagination ~ 80px
+            // Margins ~ 4rem = 64px
+            // Available height
+            const availableH = window.innerHeight - 80 - 80 - 64;
+
+            // Card height approximates: 200px img + ~120px body + gaps = ~340px
+            // This is rough, but "fit" implies no scrolling, so we be conservative.
+            const cardH = 350;
+
+            const rows = Math.floor(availableH / cardH);
+            // Min 1 row
+            const safeRows = Math.max(1, rows);
+
+            // Get columns
+            const container = document.getElementById('content');
+            // We need to know actual columns. If auto, it's tricky without measuring.
+            // Helper: approximate card width + gap
+            const cardW = 300;
+            const availableW = container.clientWidth || (window.innerWidth - 64);
+            let cols = 1;
+
+            if (currentView === 'grid') {
+                if (gridColumns !== 'auto') {
+                    cols = parseInt(gridColumns);
+                } else {
+                    cols = Math.floor(availableW / cardW);
+                }
+            }
+
+            cols = Math.max(1, cols);
+
+            // Set temporary items per page for rendering
+            // We store the 'fit' mode in a separate var? No, itemsPerPage can stay 'fit'
+            // but we need a numeric value for the slicer.
+            // Let's use a separate effectiveItemsPerPage accessor or just pass it to render.
+
+            // Actually, let's just use a global override if mode is fit
+            const fitCount = safeRows * cols;
+
+            // Re-render
+            currentPage = 1;
+            render(getLastFiltered(), fitCount);
+        }
+
+        // Resize handler for fit mode
+        window.addEventListener('resize', () => {
+            if (itemsPerPage === 'fit') {
+                // Debounce slightly
+                clearTimeout(window.resizeTimer);
+                window.resizeTimer = setTimeout(calculateFit, 100);
+            }
+        });
+
+        function changePage(delta) {
+            currentPage += delta;
+            render(getLastFiltered());
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        let lastFilteredData = [];
+        function getLastFiltered() { return lastFilteredData; }
 
         // View Switcher
         function setView(view) {
@@ -461,13 +620,60 @@
                     (item.tags && item.tags.some(t => t.toLowerCase().includes(query)))
                 );
             });
+
+            // Reset to page 1 on new filter if query changed (implied by this function call logic usually, but let's be safe)
+            // Actually, we should only reset page if query changes, but here we call it on every change.
+            // For now, let's keep logic simple: re-filtering resets state? 
+            // Better: only reset page if data length changes drastically? No, safest is reset.
+            // But we can't easily detect "new search" vs "page change" here without more state.
+            // Let's rely on change handlers calling this.
+
+            lastFilteredData = filtered;
             render(filtered);
         }
 
         // Render Items
-        function render(items) {
+        function render(allUrlItems, overrideCount = null) {
             const container = document.getElementById('content');
+            const pagContainer = document.getElementById('pagination');
             container.innerHTML = '';
+            pagContainer.innerHTML = '';
+
+            // Determine effective items per page
+            let effectiveLimit = itemsPerPage;
+            if (itemsPerPage === 'fit') {
+                effectiveLimit = overrideCount || 12; // Fallback if called without calc
+            }
+
+            // Update Grid Columns
+            if (currentView === 'grid') {
+                if (gridColumns === 'auto') {
+                    container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+                } else {
+                    container.style.gridTemplateColumns = `repeat(${gridColumns}, 1fr)`;
+                }
+            } else {
+                container.style.gridTemplateColumns = '1fr';
+            }
+
+            // Pagination Logic
+            let items = allUrlItems;
+            let totalPages = 1;
+
+            if (effectiveLimit !== 'all' && currentGroupBy === 'none') {
+                totalPages = Math.ceil(allUrlItems.length / effectiveLimit);
+                if (currentPage > totalPages) currentPage = totalPages;
+                if (currentPage < 1) currentPage = 1;
+
+                const start = (currentPage - 1) * effectiveLimit;
+                const end = start + effectiveLimit;
+                items = allUrlItems.slice(start, end);
+            }
+
+            if (allUrlItems.length === 0) {
+                container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem; color: var(--text-muted);">No results found.</div>';
+                return;
+            }
 
             if (items.length === 0) {
                 container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem; color: var(--text-muted);">No results found.</div>';
@@ -499,6 +705,29 @@
                 });
             } else {
                 renderItemsToContainer(items, container);
+            }
+
+            // Render Pagination
+            if (effectiveLimit !== 'all' && currentGroupBy === 'none' && totalPages > 1) {
+                const prev = document.createElement('button');
+                prev.className = 'page-btn';
+                prev.innerHTML = '←';
+                prev.disabled = currentPage === 1;
+                prev.onclick = () => changePage(-1);
+
+                const info = document.createElement('div');
+                info.className = 'page-info';
+                info.textContent = `Page ${currentPage} of ${totalPages}`;
+
+                const next = document.createElement('button');
+                next.className = 'page-btn';
+                next.innerHTML = '→';
+                next.disabled = currentPage === totalPages;
+                next.onclick = () => changePage(1);
+
+                pagContainer.appendChild(prev);
+                pagContainer.appendChild(info);
+                pagContainer.appendChild(next);
             }
         }
 
@@ -602,6 +831,26 @@
         document.getElementById('modal').onclick = (e) => {
             if (e.target.id === 'modal') closeModal();
         }
+
+        // Keyboard Navigation
+        document.addEventListener('keydown', (e) => {
+            // Ignore if modal is open (optional, but good UX to not change page behind modal)
+            if (document.getElementById('modal').classList.contains('open')) {
+                if (e.key === 'Escape') closeModal();
+                return;
+            }
+
+            // Ignore if typing in search
+            if (document.activeElement === document.getElementById('searchInput')) return;
+
+            if (e.key === 'ArrowLeft') {
+                const prevBtn = document.querySelector('#pagination button:first-child');
+                if (prevBtn && !prevBtn.disabled) changePage(-1);
+            } else if (e.key === 'ArrowRight') {
+                const nextBtn = document.querySelector('#pagination button:last-child');
+                if (nextBtn && !nextBtn.disabled) changePage(1);
+            }
+        });
     </script>
 
 </body>

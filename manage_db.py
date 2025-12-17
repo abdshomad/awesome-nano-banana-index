@@ -320,7 +320,24 @@ def search(query):
 @click.option('--port', default=8000, help='Port to serve on.')
 def serve(port):
     """Start the Web Viewer."""
-    handler = http.server.SimpleHTTPRequestHandler
+    class NanoBananaRequestHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/':
+                self.path = '/viewer.html'
+            try:
+                return http.server.SimpleHTTPRequestHandler.do_GET(self)
+            except BrokenPipeError:
+                # Client disconnected, ignore
+                pass
+            except ConnectionResetError:
+                # Client disconnected, ignore
+                pass
+
+        def list_directory(self, path):
+            self.send_error(404, "No permission to list directory")
+            return None
+
+    handler = NanoBananaRequestHandler
     
     # Custom class to allow address reuse
     class ReusableTCPServer(socketserver.TCPServer):
